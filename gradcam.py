@@ -5,19 +5,28 @@ import torch
 from torch.autograd import Function
 from torchvision import models
 
+
 class FeatureExtractor():
     """ Class for extracting activations and 
-    registering gradients from targetted intermediate layers """
+    registering gradients from targetted intermediate layers
+    为指定的特征提取层添加hook,并提取特征
+    FIXME+ 如果target_layers不存在,就自动把该层的最终输出作为feature返回
+    """
 
     def __init__(self, model, target_layers):
         self.model = model
         self.target_layers = target_layers
         self.gradients = []
+        "FIXME+"
+        # -------------------------------------
+        self.find_target_layers = False
+        # -------------------------------------
 
     def save_gradient(self, grad):
         self.gradients.append(grad)
 
     def __call__(self, x):
+        self.find_target_layers = False
         outputs = []
         self.gradients = []
         for name, module in self.model._modules.items():
@@ -25,6 +34,14 @@ class FeatureExtractor():
             if name in self.target_layers:
                 x.register_hook(self.save_gradient)
                 outputs += [x]
+                "FIXME+"
+                # -------------------------------------
+                self.find_target_layers = True
+        if not self.find_target_layers:
+            x.register_hook(self.save_gradient)
+            outputs += [x]
+        # -------------------------------------
+
         return outputs, x
 
 
@@ -43,16 +60,21 @@ class ModelOutputs():
         return self.feature_extractor.gradients
 
     def __call__(self, x):
+        """
+        重点修改这里
+        这里就是重新模拟了以便model推理，因此需要根据模型的实际推理方法，修改该函数，使其正常foward
+        """
         target_activations = []
         for name, module in self.model._modules.items():
             if module == self.feature_module:
                 target_activations, x = self.feature_extractor(x)
-            elif "avgpool" in name.lower():
+            elif (("avgpool" in name.lower()) or
+                  ("gap" in name.lower())):
                 x = module(x)
-                x = x.view(x.size(0),-1)
+                x = x.view(x.size(0), -1)
             else:
                 x = module(x)
-        
+
         return target_activations, x
 
 
@@ -60,22 +82,28 @@ def preprocess_image(img):
     means = [0.485, 0.456, 0.406]
     stds = [0.229, 0.224, 0.225]
 
-    preprocessed_img = img.copy()[:, :, ::-1]
+    preprocessed_img = img.copy()[:, :, ::-1]  # BGR > RGB
     for i in range(3):
         preprocessed_img[:, :, i] = preprocessed_img[:, :, i] - means[i]
         preprocessed_img[:, :, i] = preprocessed_img[:, :, i] / stds[i]
     preprocessed_img = \
-        np.ascontiguousarray(np.transpose(preprocessed_img, (2, 0, 1)))
-    preprocessed_img = torch.from_numpy(preprocessed_img)
+        np.ascontiguousarray(np.transpose(preprocessed_img, (2, 0, 1)))  # transpose HWC > CHW
+    preprocessed_img = torch.from_numpy(preprocessed_img)  # to tensor
     preprocessed_img.unsqueeze_(0)
     input = preprocessed_img.requires_grad_(True)
     return input
 
 
-def show_cam_on_image(img, mask):
+def show_cam_on_image(img, mask, heatmap_rate=1.):
+    """
+    Arg:
+        img: (3,h,w)
+        mask: (h,w)
+        heatmap_rate: mask和img之间的比例，越大mask越明显
+    """
     heatmap = cv2.applyColorMap(np.uint8(255 * mask), cv2.COLORMAP_JET)
     heatmap = np.float32(heatmap) / 255
-    cam = heatmap + np.float32(img)
+    cam = heatmap * heatmap_rate + np.float32(img)
     cam = cam / np.max(cam)
     cv2.imwrite("cam.jpg", np.uint8(255 * cam))
 
@@ -127,7 +155,8 @@ class GradCam:
             cam += w * target[i, :, :]
 
         cam = np.maximum(cam, 0)
-        cam = cv2.resize(cam, input.shape[2:])
+        "FIXME+cv2.resize 是(W,H)， 而input.shape[2:]是(H,W)，正好相反"
+        cam = cv2.resize(cam, (input.shape[2:][1], input.shape[2:][0]))
         cam = cam - np.min(cam)
         cam = cam / np.max(cam)
         return cam
@@ -169,7 +198,7 @@ class GuidedBackpropReLUModel:
                 recursive_relu_apply(module)
                 if module.__class__.__name__ == 'ReLU':
                     module_top._modules[idx] = GuidedBackpropReLU.apply
-                
+
         # replace ReLU with GuidedBackpropReLU
         recursive_relu_apply(self.model)
 
@@ -218,6 +247,7 @@ def get_args():
 
     return args
 
+
 def deprocess_image(img):
     """ see https://github.com/jacobgil/keras-grad-cam/blob/master/grad-cam.py#L65 """
     img = img - np.mean(img)
@@ -225,7 +255,7 @@ def deprocess_image(img):
     img = img * 0.1
     img = img + 0.5
     img = np.clip(img, 0, 1)
-    return np.uint8(img*255)
+    return np.uint8(img * 255)
 
 
 if __name__ == '__main__':
@@ -261,7 +291,7 @@ if __name__ == '__main__':
     gb = gb_model(input, index=target_index)
     gb = gb.transpose((1, 2, 0))
     cam_mask = cv2.merge([mask, mask, mask])
-    cam_gb = deprocess_image(cam_mask*gb)
+    cam_gb = deprocess_image(cam_mask * gb)
     gb = deprocess_image(gb)
 
     cv2.imwrite('gb.jpg', gb)
