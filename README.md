@@ -1,3 +1,9 @@
+# 自定义修改内容
+
+1. 添加mask和image的融合比例系数
+2. target layer不存在时，默认将feature module的最后输出作为feature，避免查询target layer
+3. 修改使输入图片不在为固定的正方形
+
 ## Grad-CAM implementation in Pytorch ##
 
 ### What makes the network think the image label is 'pug, pug-dog' and 'tabby, tabby cat':
