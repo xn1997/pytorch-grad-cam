@@ -7,7 +7,7 @@ if __name__ == '__main__':
     and computes intermediate activations.
     Makes the visualization. """
 
-    use_cuda = False
+    use_cuda = True
     image_path = "./examples/both.png"
 
     # Can work with any model, but it assumes that the model has a
@@ -27,7 +27,7 @@ if __name__ == '__main__':
     mask = grad_cam(input, target_index)
 
     "img: 归一化的 0~1"
-    show_cam_on_image(img, mask, heatmap_rate=0.5)
+    show_cam_on_image(img, mask, heatmap_rate=1)
 
     # gb_model = GuidedBackpropReLUModel(model=model, use_cuda=args.use_cuda)
     # print(model._modules.items())

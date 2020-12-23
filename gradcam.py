@@ -151,9 +151,11 @@ class GradCam:
         weights = np.mean(grads_val, axis=(2, 3))[0, :]
         cam = np.zeros(target.shape[1:], dtype=np.float32)
 
+        "将输出的特征图，按channel逐个像素加权相加。 权值为该feature反向传播的梯度值（表示每个channel对后续特征提取的重要性"
         for i, w in enumerate(weights):
             cam += w * target[i, :, :]
-
+            # cam += 1 * target[i, :, :]
+        # cam /= i + 1
         cam = np.maximum(cam, 0)
         "FIXME+cv2.resize 是(W,H)， 而input.shape[2:]是(H,W)，正好相反"
         cam = cv2.resize(cam, (input.shape[2:][1], input.shape[2:][0]))
