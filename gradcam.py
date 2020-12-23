@@ -145,8 +145,8 @@ class GradCam:
 
         grads_val = self.extractor.get_gradients()[-1].cpu().data.numpy()
 
-        target = features[-1]
-        target = target.cpu().data.numpy()[0, :]
+        target = features[-1]  # (N,C,H,W)
+        target = target.cpu().data.numpy()[0, :]  # (C,H,W)
 
         weights = np.mean(grads_val, axis=(2, 3))[0, :]
         cam = np.zeros(target.shape[1:], dtype=np.float32)
@@ -259,6 +259,25 @@ def deprocess_image(img):
     img = np.clip(img, 0, 1)
     return np.uint8(img * 255)
 
+def get_heatmap_without_w(input_image, feature_tensor):
+    """
+    可视化单独一层的特征图，不设置W，直接逐像素相加
+    input_image: np.array (H,W,C)
+    feature_tensor: (N,C,H,W)
+    """
+    target = feature_tensor.cpu().data.numpy()[0, :]  # (C,H,W)
+
+    cam = np.zeros(target.shape[1:], dtype=np.float32)
+
+    "将输出的特征图，按channel逐个像素加权相加。 权值为该feature反向传播的梯度值（表示每个channel对后续特征提取的重要性"
+    for i, w in enumerate(target):
+        cam += target[i, :, :]
+    cam = np.maximum(cam, 0)
+    "FIXME+cv2.resize 是(W,H)， 而input.shape[2:]是(H,W)，正好相反"
+    cam = cv2.resize(cam, (input_image.shape[:2][1], input_image.shape[:2][0]))
+    cam = cam - np.min(cam)
+    cam = cam / np.max(cam)
+    return cam
 
 if __name__ == '__main__':
     """ python grad_cam.py <path_to_image>
